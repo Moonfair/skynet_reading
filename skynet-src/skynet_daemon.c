@@ -90,15 +90,18 @@ redirect_fds() {
 	return 0;
 }
 
+//初始化后台模式
+//pidfile: 将pid记录在该文件
 int
 daemon_init(const char *pidfile) {
+	//检查是否已开启
 	int pid = check_pid(pidfile);
-
 	if (pid) {
 		fprintf(stderr, "Skynet is already running, pid = %d.\n", pid);
 		return 1;
 	}
 
+	//创建守护进程
 #ifdef __APPLE__
 	fprintf(stderr, "'daemon' is deprecated: first deprecated in OS X 10.5 , use launchd instead.\n");
 #else
@@ -108,11 +111,13 @@ daemon_init(const char *pidfile) {
 	}
 #endif
 
+	//写入pid
 	pid = write_pid(pidfile);
 	if (pid == 0) {
 		return 1;
 	}
 
+	//关闭stdin, stdout, stderr
 	if (redirect_fds()) {
 		return 1;
 	}

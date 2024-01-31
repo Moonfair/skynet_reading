@@ -112,19 +112,20 @@ struct socket {
 	size_t dw_size;
 };
 
+//socket结构体
 struct socket_server {
 	volatile uint64_t time;
 	int reserve_fd;	// for EMFILE
-	int recvctrl_fd;
-	int sendctrl_fd;
+	int recvctrl_fd;	//接收文件描述符
+	int sendctrl_fd;	//发送文件描述符
 	int checkctrl;
-	poll_fd event_fd;
+	poll_fd event_fd;	//所属kqueue编号
 	ATOM_INT alloc_id;
 	int event_n;
 	int event_index;
 	struct socket_object_interface soi;
 	struct event ev[MAX_EVENT];
-	struct socket slot[MAX_SOCKET];
+	struct socket slot[MAX_SOCKET];	//slot中存放socket
 	char buffer[MAX_INFO];
 	uint8_t udpbuffer[MAX_UDP_PACKAGE];
 	fd_set rfds;
@@ -377,20 +378,26 @@ clear_wb_list(struct wb_list *list) {
 	list->tail = NULL;
 }
 
+//创建一个新socket
 struct socket_server * 
 socket_server_create(uint64_t time) {
 	int i;
 	int fd[2];
+	//创建新kqueue
 	poll_fd efd = sp_create();
 	if (sp_invalid(efd)) {
 		skynet_error(NULL, "socket-server: create event pool failed.");
 		return NULL;
 	}
+	//创建管道
+	//当前线程 fd[1]写入 fd[0]读取
+	//子线程 fd[0]读取 fd[1]写入
 	if (pipe(fd)) {
 		sp_release(efd);
 		skynet_error(NULL, "socket-server: create socket pair failed.");
 		return NULL;
 	}
+	//注册kqueue监听事件
 	if (sp_add(efd, fd[0], NULL)) {
 		// add recvctrl_fd to event poll
 		skynet_error(NULL, "socket-server: can't add server fd to event pool.");
@@ -408,6 +415,7 @@ socket_server_create(uint64_t time) {
 	ss->checkctrl = 1;
 	ss->reserve_fd = dup(1);	// reserve an extra fd for EMFILE
 
+	//初始化每个实际socket
 	for (i=0;i<MAX_SOCKET;i++) {
 		struct socket *s = &ss->slot[i];
 		ATOM_INIT(&s->type, SOCKET_TYPE_INVALID);

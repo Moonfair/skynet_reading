@@ -74,6 +74,7 @@ _init_env(lua_State *L) {
 	lua_pop(L,1);
 }
 
+//忽略 SIGPIPE 信号
 int sigign() {
 	struct sigaction sa;
 	sa.sa_handler = SIG_IGN;
@@ -114,8 +115,11 @@ static const char * load_config = "\
 	return result\n\
 ";
 
+//入口
+//argv中传入配置文件路径
 int
 main(int argc, char *argv[]) {
+	//配置文件路径
 	const char * config_file = NULL ;
 	if (argc > 1) {
 		config_file = argv[1];
@@ -130,6 +134,7 @@ main(int argc, char *argv[]) {
 
 	sigign();
 
+	//内存配置配置
 	struct skynet_config config;
 
 #ifdef LUA_CACHELIB
@@ -137,6 +142,7 @@ main(int argc, char *argv[]) {
 	luaL_initcodecache();
 #endif
 
+	//新建虚拟机仅用于加载lua配置
 	struct lua_State *L = luaL_newstate();
 	luaL_openlibs(L);	// link lua lib
 
@@ -152,6 +158,7 @@ main(int argc, char *argv[]) {
 	}
 	_init_env(L);
 
+	//从lua虚拟机中再读取配置到c内存中
 	config.thread =  optint("thread",8);
 	config.module_path = optstring("cpath","./cservice/?.so");
 	config.harbor = optint("harbor", 1);
@@ -163,6 +170,7 @@ main(int argc, char *argv[]) {
 
 	lua_close(L);
 
+	//服务启动
 	skynet_start(&config);
 	skynet_globalexit();
 

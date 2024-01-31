@@ -38,6 +38,7 @@ struct global_queue {
 	struct spinlock lock;
 };
 
+//全局mq
 static struct global_queue *Q = NULL;
 
 void 
@@ -208,6 +209,7 @@ skynet_mq_push(struct message_queue *q, struct skynet_message *message) {
 	SPIN_UNLOCK(q)
 }
 
+//初始化全局mq
 void 
 skynet_mq_init() {
 	struct global_queue *q = skynet_malloc(sizeof(*q));

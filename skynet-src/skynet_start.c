@@ -256,6 +256,7 @@ bootstrap(struct skynet_context * logger, const char * cmdline) {
 
 void 
 skynet_start(struct skynet_config * config) {
+	// 拦截 SIGHUP 信号并处理
 	// register SIGHUP for log file reopen
 	struct sigaction sa;
 	sa.sa_handler = &handle_hup;
@@ -263,6 +264,7 @@ skynet_start(struct skynet_config * config) {
 	sigfillset(&sa.sa_mask);
 	sigaction(SIGHUP, &sa, NULL);
 
+	//后台模式启动
 	if (config->daemon) {
 		if (daemon_init(config->daemon)) {
 			exit(1);
@@ -276,6 +278,7 @@ skynet_start(struct skynet_config * config) {
 	skynet_socket_init();
 	skynet_profile_enable(config->profile);
 
+	//初始化上下文
 	struct skynet_context *ctx = skynet_context_new(config->logservice, config->logger);
 	if (ctx == NULL) {
 		fprintf(stderr, "Can't launch %s service\n", config->logservice);

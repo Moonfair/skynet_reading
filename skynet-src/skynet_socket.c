@@ -11,8 +11,10 @@
 #include <string.h>
 #include <stdbool.h>
 
+//全局socket服务
 static struct socket_server * SOCKET_SERVER = NULL;
 
+//初始化全局socket服务
 void 
 skynet_socket_init() {
 	SOCKET_SERVER = socket_server_create(skynet_now());

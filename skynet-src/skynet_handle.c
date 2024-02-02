@@ -22,15 +22,17 @@ struct handle_storage {
 	uint32_t harbor;
 	uint32_t handle_index;
 	int slot_size;
-	struct skynet_context ** slot;
+	struct skynet_context ** slot;	//管理所有的模块上下文
 	
 	int name_cap;
 	int name_count;
 	struct handle_name *name;
 };
 
+//全局句柄管理器
 static struct handle_storage *H = NULL;
 
+//将整个上下文存入全局句柄管理器中
 uint32_t
 skynet_handle_register(struct skynet_context *ctx) {
 	struct handle_storage *s = H;
@@ -56,6 +58,8 @@ skynet_handle_register(struct skynet_context *ctx) {
 				return handle;
 			}
 		}
+
+		//发生哈希冲突时, 动态扩容slot数组
 		assert((s->slot_size*2 - 1) <= HANDLE_MASK);
 		struct skynet_context ** new_slot = skynet_malloc(s->slot_size * 2 * sizeof(struct skynet_context *));
 		memset(new_slot, 0, s->slot_size * 2 * sizeof(struct skynet_context *));
@@ -245,6 +249,7 @@ skynet_handle_namehandle(uint32_t handle, const char *name) {
 	return ret;
 }
 
+//初始化全局句柄管理器
 void 
 skynet_handle_init(int harbor) {
 	assert(H==NULL);

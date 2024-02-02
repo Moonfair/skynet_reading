@@ -10,6 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+//校验kqueue是否创建成功
 static bool 
 sp_invalid(int kfd) {
 	return kfd == -1;
@@ -34,21 +35,27 @@ sp_del(int kfd, int sock) {
 	kevent(kfd, &ke, 1, NULL, 0, NULL);
 }
 
+//将文件描述符(sock)加入到kqueue(kfd)中
 static int 
 sp_add(int kfd, int sock, void *ud) {
 	struct kevent ke;
+	//添加读事件监听
 	EV_SET(&ke, sock, EVFILT_READ, EV_ADD, 0, 0, ud);
 	if (kevent(kfd, &ke, 1, NULL, 0, NULL) == -1 ||	ke.flags & EV_ERROR) {
 		return 1;
 	}
+	//添加写事件监听
 	EV_SET(&ke, sock, EVFILT_WRITE, EV_ADD, 0, 0, ud);
 	if (kevent(kfd, &ke, 1, NULL, 0, NULL) == -1 ||	ke.flags & EV_ERROR) {
+		//如果添加失败也关闭读事件的监听
 		EV_SET(&ke, sock, EVFILT_READ, EV_DELETE, 0, 0, NULL);
 		kevent(kfd, &ke, 1, NULL, 0, NULL);
 		return 1;
 	}
+	//禁用写事件监听
 	EV_SET(&ke, sock, EVFILT_WRITE, EV_DISABLE, 0, 0, ud);
 	if (kevent(kfd, &ke, 1, NULL, 0, NULL) == -1 ||	ke.flags & EV_ERROR) {
+		//如果禁用失败关闭读写事件的监听
 		sp_del(kfd, sock);
 		return 1;
 	}

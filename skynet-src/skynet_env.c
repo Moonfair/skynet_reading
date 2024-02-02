@@ -10,9 +10,10 @@
 
 struct skynet_env {
 	struct spinlock lock;
-	lua_State *L;
+	lua_State *L; //lua虚拟机
 };
 
+//全局运行环境
 static struct skynet_env *E = NULL;
 
 const char * 
@@ -44,6 +45,7 @@ skynet_setenv(const char *key, const char *value) {
 	SPIN_UNLOCK(E)
 }
 
+//初始化skynet运行环境
 void
 skynet_env_init() {
 	E = skynet_malloc(sizeof(*E));

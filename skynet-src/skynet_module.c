@@ -19,8 +19,10 @@ struct modules {
 	struct skynet_module m[MAX_MODULE_TYPE];
 };
 
+//全局so库管理器
 static struct modules * M = NULL;
 
+//打开so库
 static void *
 _try_open(struct modules *m, const char * name) {
 	const char *l;
@@ -89,6 +91,7 @@ get_api(struct skynet_module *mod, const char *api_name) {
 	return dlsym(mod->module, ptr);
 }
 
+//加载skynet指定的4类方法, 写入内存中
 static int
 open_sym(struct skynet_module *mod) {
 	mod->create = get_api(mod, "_create");
@@ -99,6 +102,7 @@ open_sym(struct skynet_module *mod) {
 	return mod->init == NULL;
 }
 
+// 查询module, 若不存在则从config.path加载
 struct skynet_module * 
 skynet_module_query(const char * name) {
 	struct skynet_module * result = _query(name);
@@ -129,6 +133,7 @@ skynet_module_query(const char * name) {
 	return result;
 }
 
+//调用模块的create方法
 void * 
 skynet_module_instance_create(struct skynet_module *m) {
 	if (m->create) {
@@ -138,6 +143,7 @@ skynet_module_instance_create(struct skynet_module *m) {
 	}
 }
 
+//调用模块初始化方法
 int
 skynet_module_instance_init(struct skynet_module *m, void * inst, struct skynet_context *ctx, const char * parm) {
 	return m->init(inst, ctx, parm);
@@ -157,6 +163,7 @@ skynet_module_instance_signal(struct skynet_module *m, void *inst, int signal) {
 	}
 }
 
+//初始化全局so库管理器
 void 
 skynet_module_init(const char *path) {
 	struct modules *m = skynet_malloc(sizeof(*m));

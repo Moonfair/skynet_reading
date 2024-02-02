@@ -40,8 +40,8 @@
 #endif
 
 struct skynet_context {
-	void * instance;
-	struct skynet_module * mod;
+	void * instance;	//create出的模块实体
+	struct skynet_module * mod;	//对应的模块对象
 	void * cb_ud;
 	skynet_cb cb;
 	struct message_queue *queue;
@@ -68,6 +68,7 @@ struct skynet_node {
 	bool profile;	// default is on
 };
 
+//全局节点(主节点)
 static struct skynet_node G_NODE;
 
 int 
@@ -136,6 +137,7 @@ skynet_context_new(const char * name, const char *param) {
 
 	ctx->mod = mod;
 	ctx->instance = inst;
+	//引用计数器初始化为2: 一个为对象本身持有, 一个为当前代码段持有
 	ATOM_INIT(&ctx->ref , 2);
 	ctx->cb = NULL;
 	ctx->cb_ud = NULL;
@@ -152,11 +154,13 @@ skynet_context_new(const char * name, const char *param) {
 	// Should set to 0 first to avoid skynet_handle_retireall get an uninitialized handle
 	ctx->handle = 0;	
 	ctx->handle = skynet_handle_register(ctx);
+	//创建模块mq
 	struct message_queue * queue = ctx->queue = skynet_mq_create(ctx->handle);
 	// init function maybe use ctx->handle, so it must init at last
 	context_inc();
 
 	CHECKCALLING_BEGIN(ctx)
+	//调用模块提供的初始化方法
 	int r = skynet_module_instance_init(mod, inst, ctx, param);
 	CHECKCALLING_END(ctx)
 	if (r == 0) {
@@ -164,6 +168,7 @@ skynet_context_new(const char * name, const char *param) {
 		if (ret) {
 			ctx->init = true;
 		}
+		//将模块队列加入全局队列列表
 		skynet_globalmq_push(queue);
 		if (ret) {
 			skynet_error(ret, "LAUNCH %s %s", name, param ? param : "");
@@ -217,6 +222,9 @@ delete_context(struct skynet_context *ctx) {
 	context_dec();
 }
 
+//释放本段代码持有的模块引用
+//若释放后该模块的引用数为1(仅自身持有一个引用), 删除该模块并返回null
+//否则返回该模块的指针
 struct skynet_context * 
 skynet_context_release(struct skynet_context *ctx) {
 	if (ATOM_FDEC(&ctx->ref) == 1) {
@@ -805,6 +813,7 @@ skynet_context_send(struct skynet_context * ctx, void * msg, size_t sz, uint32_t
 	skynet_mq_push(ctx->queue, &smsg);
 }
 
+//初始化主节点
 void 
 skynet_globalinit(void) {
 	ATOM_INIT(&G_NODE.total , 0);
@@ -823,12 +832,14 @@ skynet_globalexit(void) {
 	pthread_key_delete(G_NODE.handle_key);
 }
 
+//记录线程类型
 void
 skynet_initthread(int m) {
 	uintptr_t v = (uint32_t)(-m);
 	pthread_setspecific(G_NODE.handle_key, (void *)v);
 }
 
+//设置性能分析是否开启
 void
 skynet_profile_enable(int enable) {
 	G_NODE.profile = (bool)enable;

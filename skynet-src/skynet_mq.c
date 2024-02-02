@@ -41,6 +41,7 @@ struct global_queue {
 //全局mq
 static struct global_queue *Q = NULL;
 
+//将指定mq加入全局mq列表
 void 
 skynet_globalmq_push(struct message_queue * queue) {
 	struct global_queue *q= Q;
@@ -75,6 +76,7 @@ skynet_globalmq_pop() {
 	return mq;
 }
 
+//创建mq
 struct message_queue * 
 skynet_mq_create(uint32_t handle) {
 	struct message_queue *q = skynet_malloc(sizeof(*q));

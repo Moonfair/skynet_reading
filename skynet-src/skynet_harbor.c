@@ -30,6 +30,7 @@ skynet_harbor_message_isremote(uint32_t handle) {
 }
 
 void
+//记录自己的haborId
 skynet_harbor_init(int harbor) {
 	HARBOR = (unsigned int)harbor << HANDLE_REMOTE_SHIFT;
 }

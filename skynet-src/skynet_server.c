@@ -164,6 +164,7 @@ skynet_context_new(const char * name, const char *param) {
 	int r = skynet_module_instance_init(mod, inst, ctx, param);
 	CHECKCALLING_END(ctx)
 	if (r == 0) {
+		//释放本段代码持有的模块引用
 		struct skynet_context * ret = skynet_context_release(ctx);
 		if (ret) {
 			ctx->init = true;
@@ -175,6 +176,7 @@ skynet_context_new(const char * name, const char *param) {
 		}
 		return ret;
 	} else {
+		//初始化失败, 清理内存, 返回错误码
 		skynet_error(ctx, "FAILED launch %s", name);
 		uint32_t handle = ctx->handle;
 		skynet_context_release(ctx);

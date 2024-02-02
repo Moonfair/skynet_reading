@@ -33,12 +33,15 @@ struct handle_storage {
 static struct handle_storage *H = NULL;
 
 //将整个上下文存入全局句柄管理器中
+//返回值为该上下文在全局管理器中的唯一编号:
+//前8位为harborId, 后24位为该上下文在slot数组中的索引
 uint32_t
 skynet_handle_register(struct skynet_context *ctx) {
 	struct handle_storage *s = H;
 
 	rwlock_wlock(&s->lock);
 	
+	//不断尝试扩容slot数组, 直到放入新元素时不产生冲突
 	for (;;) {
 		int i;
 		uint32_t handle = s->handle_index;

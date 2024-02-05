@@ -18,9 +18,10 @@
 #include <string.h>
 #include <signal.h>
 
+//线程监视器集合
 struct monitor {
-	int count;
-	struct skynet_monitor ** m;
+	int count;	//线程数量
+	struct skynet_monitor ** m;	//线程监视器数组
 	pthread_cond_t cond;
 	pthread_mutex_t mutex;
 	int sleep;
@@ -42,8 +43,10 @@ handle_hup(int signal) {
 	}
 }
 
+//检测应用程序关闭时, 退出线程循环
 #define CHECK_ABORT if (skynet_context_total()==0) break;
 
+//创建一个线程
 static void
 create_thread(pthread_t *thread, void *(*start_routine) (void *), void *arg) {
 	if (pthread_create(thread,NULL, start_routine, arg)) {
@@ -52,19 +55,28 @@ create_thread(pthread_t *thread, void *(*start_routine) (void *), void *arg) {
 	}
 }
 
+//唤醒至少busy个线程
 static void
 wakeup(struct monitor *m, int busy) {
 	if (m->sleep >= m->count - busy) {
 		// signal sleep worker, "spurious wakeup" is harmless
+		// 关于虚假唤醒(spurious wakeup): 实际未达到唤醒条件, 但各种原因导致部分消费者暂时被错误地唤醒, 常见的处理方法是吧cond_wait放入循环中, 这样若虚假唤醒, 仍能在该条件出正确阻塞
 		pthread_cond_signal(&m->cond);
 	}
 }
 
+//socket线程
+//socket线程实际并不执行网络收发操作, 它通过初始化时创建的管道进行消息读写
+//管道与实际执行网络收发的gate模块相连, gate再通过管道与socket线程交换, 从而实现网络收发
+//详见: https://manistein.github.io/blog/post/server/skynet/skynet网络机制/
 static void *
 thread_socket(void *p) {
 	struct monitor * m = p;
 	skynet_initthread(THREAD_SOCKET);
+
+	//工作循环
 	for (;;) {
+		//从socket读取消息
 		int r = skynet_socket_poll();
 		if (r==0)
 			break;
@@ -90,6 +102,7 @@ free_monitor(struct monitor *m) {
 	skynet_free(m);
 }
 
+//监视器线程
 static void *
 thread_monitor(void *p) {
 	struct monitor * m = p;
@@ -98,9 +111,11 @@ thread_monitor(void *p) {
 	skynet_initthread(THREAD_MONITOR);
 	for (;;) {
 		CHECK_ABORT
+		//遍历所有线程
 		for (i=0;i<n;i++) {
 			skynet_monitor_check(m->m[i]);
 		}
+		//sleep 5s, 每秒执行关闭检测
 		for (i=0;i<5;i++) {
 			CHECK_ABORT
 			sleep(1);
@@ -113,7 +128,7 @@ thread_monitor(void *p) {
 static void
 signal_hup() {
 	// make log file reopen
-
+	// 向log模块发送消息
 	struct skynet_message smsg;
 	smsg.source = 0;
 	smsg.session = 0;
@@ -125,14 +140,20 @@ signal_hup() {
 	}
 }
 
+//定时器线程
 static void *
 thread_timer(void *p) {
 	struct monitor * m = p;
 	skynet_initthread(THREAD_TIMER);
+
+	//工作循环
 	for (;;) {
+		//更新全局定时器的时间
 		skynet_updatetime();
+		//用全局定时器的时间更新socket_server的时间
 		skynet_socket_updatetime();
 		CHECK_ABORT
+		//唤醒count-1个线程
 		wakeup(m,m->count-1);
 		usleep(2500);
 		if (SIG) {
@@ -140,9 +161,13 @@ thread_timer(void *p) {
 			SIG = 0;
 		}
 	}
+
+	//退出程序回调
 	// wakeup socket thread
+	// 关闭连接到主线程的socket_server
 	skynet_socket_exit();
 	// wakeup all worker thread
+	// 关闭本机所有的worker线程
 	pthread_mutex_lock(&m->mutex);
 	m->quit = 1;
 	pthread_cond_broadcast(&m->cond);
@@ -150,6 +175,7 @@ thread_timer(void *p) {
 	return NULL;
 }
 
+//工作线程
 static void *
 thread_worker(void *p) {
 	struct worker_parm *wp = p;
@@ -183,6 +209,7 @@ static void
 start(int thread) {
 	pthread_t pid[thread+3];
 
+	//初始化线程监视器
 	struct monitor *m = skynet_malloc(sizeof(*m));
 	memset(m, 0, sizeof(*m));
 	m->count = thread;
@@ -190,9 +217,11 @@ start(int thread) {
 
 	m->m = skynet_malloc(thread * sizeof(struct skynet_monitor *));
 	int i;
+	//新建各线程的监视器
 	for (i=0;i<thread;i++) {
 		m->m[i] = skynet_monitor_new();
 	}
+	//初始化mutex和cond
 	if (pthread_mutex_init(&m->mutex, NULL)) {
 		fprintf(stderr, "Init mutex error");
 		exit(1);
@@ -202,6 +231,7 @@ start(int thread) {
 		exit(1);
 	}
 
+	//创建监视器线程、计时器线程、网络线程
 	create_thread(&pid[0], thread_monitor, m);
 	create_thread(&pid[1], thread_timer, m);
 	create_thread(&pid[2], thread_socket, m);
@@ -230,8 +260,10 @@ start(int thread) {
 	free_monitor(m);
 }
 
+//启动第一个模块
 static void
 bootstrap(struct skynet_context * logger, const char * cmdline) {
+	//拆分模块名与启动参数
 	int sz = strlen(cmdline);
 	char name[sz+1];
 	char args[sz+1];
@@ -246,6 +278,8 @@ bootstrap(struct skynet_context * logger, const char * cmdline) {
 	} else {
 		args[0] = '\0';
 	}
+
+	//初始化bootstrap模块上下文
 	struct skynet_context *ctx = skynet_context_new(name, args);
 	if (ctx == NULL) {
 		skynet_error(NULL, "Bootstrap error : %s\n", cmdline);
@@ -278,15 +312,17 @@ skynet_start(struct skynet_config * config) {
 	skynet_socket_init();
 	skynet_profile_enable(config->profile);
 
-	//初始化上下文
+	//初始化日志模块上下文
 	struct skynet_context *ctx = skynet_context_new(config->logservice, config->logger);
 	if (ctx == NULL) {
 		fprintf(stderr, "Can't launch %s service\n", config->logservice);
 		exit(1);
 	}
 
+	//注册日志模块名称
 	skynet_handle_namehandle(skynet_context_handle(ctx), "logger");
 
+	//启动首个服务
 	bootstrap(ctx, config->bootstrap);
 
 	start(config->thread);

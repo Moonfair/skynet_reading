@@ -116,8 +116,8 @@ struct socket {
 struct socket_server {
 	volatile uint64_t time;
 	int reserve_fd;	// for EMFILE
-	int recvctrl_fd;	//接收文件描述符
-	int sendctrl_fd;	//发送文件描述符
+	int recvctrl_fd;	//接收管道文件描述符
+	int sendctrl_fd;	//发送管道文件描述符
 	int checkctrl;
 	poll_fd event_fd;	//所属kqueue编号
 	ATOM_INT alloc_id;
@@ -128,7 +128,7 @@ struct socket_server {
 	struct socket slot[MAX_SOCKET];	//slot中存放socket
 	char buffer[MAX_INFO];
 	uint8_t udpbuffer[MAX_UDP_PACKAGE];
-	fd_set rfds;
+	fd_set rfds;	//需要执行读取的文件描述符集合
 };
 
 struct request_open {
@@ -1283,13 +1283,16 @@ block_readpipe(int pipefd, void *buffer, int sz) {
 	}
 }
 
+//检测是否有新消息发送至socket_server
 static int
 has_cmd(struct socket_server *ss) {
 	struct timeval tv = {0,0};
 	int retval;
 
+	//将接收管道加入读取文件描述符集合
 	FD_SET(ss->recvctrl_fd, &ss->rfds);
 
+	// select 第一个参数一般设置为rfds中最大fd+1, 用于缩小轮询fd的时间
 	retval = select(ss->recvctrl_fd+1, &ss->rfds, NULL, NULL, &tv);
 	if (retval == 1) {
 		return 1;

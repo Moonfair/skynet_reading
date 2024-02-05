@@ -174,6 +174,7 @@ skynet_mq_pop(struct message_queue *q, struct skynet_message *message) {
 	return ret;
 }
 
+//若空间不足, 扩容为原来的2倍
 static void
 expand_queue(struct message_queue *q) {
 	struct skynet_message *new_queue = skynet_malloc(sizeof(struct skynet_message) * q->cap * 2);
@@ -189,6 +190,7 @@ expand_queue(struct message_queue *q) {
 	q->queue = new_queue;
 }
 
+//插入消息到指定mq
 void 
 skynet_mq_push(struct message_queue *q, struct skynet_message *message) {
 	assert(message);

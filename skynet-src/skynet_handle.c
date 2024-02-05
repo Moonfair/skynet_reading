@@ -22,11 +22,11 @@ struct handle_storage {
 	uint32_t harbor;
 	uint32_t handle_index;
 	int slot_size;
-	struct skynet_context ** slot;	//管理所有的模块上下文
+	struct skynet_context ** slot;	//管理所有的模块上下文列表
 	
 	int name_cap;
 	int name_count;
-	struct handle_name *name;
+	struct handle_name *name;	//模块名称表
 };
 
 //全局句柄管理器
@@ -142,6 +142,8 @@ skynet_handle_retireall() {
 	}
 }
 
+//由唯一id获取指定模块
+//调用该方法时会增加一层该模块的引用计数
 struct skynet_context * 
 skynet_handle_grab(uint32_t handle) {
 	struct handle_storage *s = H;
@@ -161,6 +163,7 @@ skynet_handle_grab(uint32_t handle) {
 	return result;
 }
 
+//根据名称查找模块的唯一id
 uint32_t 
 skynet_handle_findname(const char * name) {
 	struct handle_storage *s = H;
@@ -191,6 +194,8 @@ skynet_handle_findname(const char * name) {
 	return handle;
 }
 
+//注册模块名称
+//将模块的唯一id与给定的名称绑定
 static void
 _insert_name_before(struct handle_storage *s, char *name, uint32_t handle, int before) {
 	if (s->name_count >= s->name_cap) {
@@ -217,6 +222,7 @@ _insert_name_before(struct handle_storage *s, char *name, uint32_t handle, int b
 	s->name_count ++;
 }
 
+//注册模块名称
 static const char *
 _insert_name(struct handle_storage *s, const char * name, uint32_t handle) {
 	int begin = 0;
@@ -241,6 +247,7 @@ _insert_name(struct handle_storage *s, const char * name, uint32_t handle) {
 	return result;
 }
 
+//注册模块名称
 const char * 
 skynet_handle_namehandle(uint32_t handle, const char *name) {
 	rwlock_wlock(&H->lock);

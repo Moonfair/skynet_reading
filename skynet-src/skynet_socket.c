@@ -77,12 +77,14 @@ forward_message(int type, bool padding, struct socket_message * result) {
 	}
 }
 
+//从socket读取消息
 int 
 skynet_socket_poll() {
 	struct socket_server *ss = SOCKET_SERVER;
 	assert(ss);
 	struct socket_message result;
 	int more = 1;
+	//取一条skynet消息
 	int type = socket_server_poll(ss, &result, &more);
 	switch (type) {
 	case SOCKET_EXIT:

@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+//线程监视器
 struct skynet_monitor {
 	ATOM_INT version;
 	int check_version;
@@ -34,6 +35,8 @@ skynet_monitor_trigger(struct skynet_monitor *sm, uint32_t source, uint32_t dest
 	ATOM_FINC(&sm->version);
 }
 
+//线程检查
+//Todo: 这是咋检查的??
 void 
 skynet_monitor_check(struct skynet_monitor *sm) {
 	if (sm->version == sm->check_version) {

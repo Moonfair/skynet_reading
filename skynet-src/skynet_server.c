@@ -122,6 +122,8 @@ drop_message(struct skynet_message *msg, void *ud) {
 	skynet_send(NULL, source, msg->source, PTYPE_ERROR, msg->session, NULL, 0);
 }
 
+//初始化模块上下文
+//(创建一个新模块并初始化)
 struct skynet_context * 
 skynet_context_new(const char * name, const char *param) {
 	struct skynet_module * mod = skynet_module_query(name);
@@ -198,6 +200,7 @@ skynet_context_newsession(struct skynet_context *ctx) {
 	return session;
 }
 
+//增加引用计数
 void 
 skynet_context_grab(struct skynet_context *ctx) {
 	ATOM_FINC(&ctx->ref);
@@ -236,6 +239,8 @@ skynet_context_release(struct skynet_context *ctx) {
 	return ctx;
 }
 
+//向指定模块发送消息
+//(实现方式是向指定模块的mq插入该条消息)
 int
 skynet_context_push(uint32_t handle, struct skynet_message *message) {
 	struct skynet_context * ctx = skynet_handle_grab(handle);
@@ -793,6 +798,7 @@ skynet_sendname(struct skynet_context * context, uint32_t source, const char * a
 	return skynet_send(context, source, des, type, session, data, sz);
 }
 
+//ctx.handle
 uint32_t 
 skynet_context_handle(struct skynet_context *ctx) {
 	return ctx->handle;

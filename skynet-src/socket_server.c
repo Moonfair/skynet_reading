@@ -97,16 +97,16 @@ struct socket {
 	int id;
 	ATOM_INT type;
 	uint8_t protocol;
-	bool reading;
-	bool writing;
-	bool closing;
+	bool reading;	//本socket读是否启用
+	bool writing;	//本socket写是否启用
+	bool closing;	//本socket是否关闭
 	ATOM_INT udpconnecting;
 	int64_t warn_size;
 	union {
 		int size;
 		uint8_t udp_address[UDP_ADDRESS_SIZE];
 	} p;
-	struct spinlock dw_lock;
+	struct spinlock dw_lock;	//socket自旋锁
 	int dw_offset;
 	const void * dw_buffer;
 	size_t dw_size;
@@ -126,7 +126,7 @@ struct socket_server {
 	struct socket_object_interface soi;
 	struct event ev[MAX_EVENT];
 	struct socket slot[MAX_SOCKET];	//slot中存放socket
-	char buffer[MAX_INFO];
+	char buffer[MAX_INFO];	//本机socket地址
 	uint8_t udpbuffer[MAX_UDP_PACKAGE];
 	fd_set rfds;	//需要执行读取的文件描述符集合
 };
@@ -173,6 +173,7 @@ struct request_bind {
 	uintptr_t opaque;
 };
 
+//暂停/回复请求
 struct request_resumepause {
 	int id;
 	uintptr_t opaque;
@@ -247,6 +248,7 @@ struct socket_lock {
 	int count;
 };
 
+//取socket的自旋锁
 static inline void
 socket_lock_init(struct socket *s, struct socket_lock *sl) {
 	sl->lock = &s->dw_lock;
@@ -415,7 +417,7 @@ socket_server_create(uint64_t time) {
 	ss->checkctrl = 1;
 	ss->reserve_fd = dup(1);	// reserve an extra fd for EMFILE
 
-	//初始化每个实际socket
+	//初始化socket池
 	for (i=0;i<MAX_SOCKET;i++) {
 		struct socket *s = &ss->slot[i];
 		ATOM_INIT(&s->type, SOCKET_TYPE_INVALID);
@@ -486,6 +488,7 @@ clone_buffer(struct socket_sendbuffer *buf, size_t *sz) {
 	return NULL;
 }
 
+//强制关闭socket监听
 static void
 force_close(struct socket_server *ss, struct socket *s, struct socket_lock *l, struct socket_message *result) {
 	result->id = s->id;
@@ -497,10 +500,13 @@ force_close(struct socket_server *ss, struct socket *s, struct socket_lock *l, s
 		return;
 	}
 	assert(type != SOCKET_TYPE_RESERVE);
+	//删除socket队列
 	free_wb_list(ss,&s->high);
 	free_wb_list(ss,&s->low);
+	//删除kqueue监听
 	sp_del(ss->event_fd, s->fd);
 	socket_lock(l);
+	//关闭fd
 	if (type != SOCKET_TYPE_BIND) {
 		if (close(s->fd) < 0) {
 			perror("close socket:");
@@ -546,6 +552,7 @@ check_wb_list(struct wb_list *s) {
 	assert(s->tail == NULL);
 }
 
+//启用kqueue写监听
 static inline int
 enable_write(struct socket_server *ss, struct socket *s, bool enable) {
 	if (s->writing != enable) {
@@ -555,6 +562,7 @@ enable_write(struct socket_server *ss, struct socket *s, bool enable) {
 	return 0;
 }
 
+//启用socket读取功能
 static inline int
 enable_read(struct socket_server *ss, struct socket *s, bool enable) {
 	if (s->reading != enable) {
@@ -564,16 +572,19 @@ enable_read(struct socket_server *ss, struct socket *s, bool enable) {
 	return 0;
 }
 
+//新增socket fd监听
 static struct socket *
 new_fd(struct socket_server *ss, int id, int fd, int protocol, uintptr_t opaque, bool reading) {
 	struct socket * s = &ss->slot[HASH_ID(id)];
 	assert(ATOM_LOAD(&s->type) == SOCKET_TYPE_RESERVE);
 
+	//添加fd监听
 	if (sp_add(ss->event_fd, fd, s)) {
 		ATOM_STORE(&s->type, SOCKET_TYPE_INVALID);
 		return NULL;
 	}
 
+	//配置socket状态
 	s->id = id;
 	s->fd = fd;
 	s->reading = true;
@@ -590,6 +601,7 @@ new_fd(struct socket_server *ss, int id, int fd, int protocol, uintptr_t opaque,
 	s->dw_buffer = NULL;
 	s->dw_size = 0;
 	memset(&s->stat, 0, sizeof(s->stat));
+	//启用/关闭读取功能
 	if (enable_read(ss, s, reading)) {
 		ATOM_STORE(&s->type , SOCKET_TYPE_INVALID);
 		return NULL;
@@ -636,12 +648,14 @@ open_socket(struct socket_server *ss, struct request_open * request, struct sock
 	}
 	int sock= -1;
 	for (ai_ptr = ai_list; ai_ptr != NULL; ai_ptr = ai_ptr->ai_next ) {
+		//开启socket
 		sock = socket( ai_ptr->ai_family, ai_ptr->ai_socktype, ai_ptr->ai_protocol );
 		if ( sock < 0 ) {
 			continue;
 		}
 		socket_keepalive(sock);
 		sp_nonblocking(sock);
+		//链接socket
 		status = connect( sock, ai_ptr->ai_addr, ai_ptr->ai_addrlen);
 		if ( status != 0 && errno != EINPROGRESS) {
 			close(sock);
@@ -656,6 +670,7 @@ open_socket(struct socket_server *ss, struct request_open * request, struct sock
 		goto _failed;
 	}
 
+	//添加监听
 	ns = new_fd(ss, id, sock, PROTOCOL_TCP, request->opaque, true);
 	if (ns == NULL) {
 		result->data = "reach skynet socket number limit";
@@ -1003,6 +1018,7 @@ trigger_write(struct socket_server *ss, struct request_send * request, struct so
 	struct socket * s = &ss->slot[HASH_ID(id)];
 	if (socket_invalid(s, id))
 		return -1;
+	//启用写功能
 	if (enable_write(ss, s, true)) {
 		return report_error(s, result, "enable write failed");
 	}
@@ -1088,10 +1104,12 @@ send_socket(struct socket_server *ss, struct request_send * request, struct sock
 	return -1;
 }
 
+//绑定本机socket
 static int
 listen_socket(struct socket_server *ss, struct request_listen * request, struct socket_message *result) {
 	int id = request->id;
 	int listen_fd = request->fd;
+	//加入新fd监听
 	struct socket *s = new_fd(ss, id, listen_fd, PROTOCOL_TCP, request->opaque, false);
 	if (s == NULL) {
 		goto _failed;
@@ -1104,8 +1122,10 @@ listen_socket(struct socket_server *ss, struct request_listen * request, struct 
 
 	union sockaddr_all u;
 	socklen_t slen = sizeof(u);
+	//获得socket的地址信息, 存放在u中
 	if (getsockname(listen_fd, &u.s, &slen) == 0) {
 		void * sin_addr = (u.s.sa_family == AF_INET) ? (void*)&u.v4.sin_addr : (void *)&u.v6.sin6_addr;
+		//转化ip地址为二进制地址, 存放在ss的buffer中
 		if (inet_ntop(u.s.sa_family, sin_addr, ss->buffer, sizeof(ss->buffer)) == 0) {
 			result->data = strerror(errno);
 			return SOCKET_ERR;
@@ -1136,11 +1156,14 @@ nomore_sending_data(struct socket *s) {
 		|| (ATOM_LOAD(&s->type) == SOCKET_TYPE_HALFCLOSE_WRITE);
 }
 
+//关闭socket读取功能
 static void
 close_read(struct socket_server *ss, struct socket * s, struct socket_message *result) {
 	// Don't read socket later
 	ATOM_STORE(&s->type , SOCKET_TYPE_HALFCLOSE_READ);
+	//关闭读监听
 	enable_read(ss,s,false);
+	//关闭真正的socket
 	shutdown(s->fd, SHUT_RD);
 	result->id = s->id;
 	result->ud = 0;
@@ -1153,6 +1176,7 @@ halfclose_read(struct socket *s) {
 	return ATOM_LOAD(&s->type) == SOCKET_TYPE_HALFCLOSE_READ;
 }
 
+// 关闭socket链接
 // SOCKET_CLOSE can be raised (only once) in one of two conditions.
 // See https://github.com/cloudwu/skynet/issues/1346 for more discussion.
 // 1. close socket by self, See close_socket()
@@ -1171,13 +1195,16 @@ close_socket(struct socket_server *ss, struct request_close *request, struct soc
 
 	int shutdown_read = halfclose_read(s);
 
+	//请求强制关闭,或已无更多可接受数据(真的没有更多数据或已处于读关闭状态)
 	if (request->shutdown || nomore_sending_data(s)) {
 		// If socket is SOCKET_TYPE_HALFCLOSE_READ, Do not raise SOCKET_CLOSE again.
 		int r = shutdown_read ? -1 : SOCKET_CLOSE;
+		//强制关闭
 		force_close(ss,s,&l,result);
 		return r;
 	}
 	s->closing = true;
+	//优雅关闭, 关闭读入, 等待所有任务处理完毕
 	if (!shutdown_read) {
 		// don't read socket after socket.close()
 		close_read(ss, s, result);
@@ -1198,6 +1225,8 @@ bind_socket(struct socket_server *ss, struct request_bind *request, struct socke
 		result->data = "reach skynet socket number limit";
 		return SOCKET_ERR;
 	}
+
+	//设置非阻塞地读取socket
 	sp_nonblocking(request->fd);
 	ATOM_STORE(&s->type , SOCKET_TYPE_BIND);
 	result->data = "binding";
@@ -1206,11 +1235,13 @@ bind_socket(struct socket_server *ss, struct request_bind *request, struct socke
 
 static int
 resume_socket(struct socket_server *ss, struct request_resumepause *request, struct socket_message *result) {
+	//填充返回包
 	int id = request->id;
 	result->id = id;
 	result->opaque = request->opaque;
 	result->ud = 0;
 	result->data = NULL;
+	//取对应socket
 	struct socket *s = &ss->slot[HASH_ID(id)];
 	if (socket_invalid(s, id)) {
 		result->data = "invalid socket";
@@ -1223,10 +1254,12 @@ resume_socket(struct socket_server *ss, struct request_resumepause *request, str
 	}
 	struct socket_lock l;
 	socket_lock_init(s, &l);
+	//启用读取功能
 	if (enable_read(ss, s, true)) {
 		result->data = "enable read failed";
 		return SOCKET_ERR;
 	}
+	//socket状态
 	uint8_t type = ATOM_LOAD(&s->type);
 	if (type == SOCKET_TYPE_PACCEPT || type == SOCKET_TYPE_PLISTEN) {
 		ATOM_STORE(&s->type , (type == SOCKET_TYPE_PACCEPT) ? SOCKET_TYPE_CONNECTED : SOCKET_TYPE_LISTEN);
@@ -1267,6 +1300,7 @@ setopt_socket(struct socket_server *ss, struct request_setopt *request) {
 	setsockopt(s->fd, IPPROTO_TCP, request->what, &v, sizeof(v));
 }
 
+//阻塞读管道
 static void
 block_readpipe(int pipefd, void *buffer, int sz) {
 	for (;;) {
@@ -1373,29 +1407,38 @@ dec_sending_ref(struct socket_server *ss, int id) {
 }
 
 // return type
+// 处理监听到的指令
 static int
 ctrl_cmd(struct socket_server *ss, struct socket_message *result) {
 	int fd = ss->recvctrl_fd;
 	// the length of message is one byte, so 256 buffer size is enough.
 	uint8_t buffer[256];
 	uint8_t header[2];
+	//读取头信息
 	block_readpipe(fd, header, sizeof(header));
 	int type = header[0];
 	int len = header[1];
+	//读取指令结构体
 	block_readpipe(fd, buffer, len);
 	// ctrl command only exist in local fd, so don't worry about endian.
 	switch (type) {
-	case 'R':
+	case 'R': 
+		//启用socket读功能
 		return resume_socket(ss,(struct request_resumepause *)buffer, result);
 	case 'S':
+		//关闭socket读功能
 		return pause_socket(ss,(struct request_resumepause *)buffer, result);
 	case 'B':
+		//绑定fd监听(启用读功能)
 		return bind_socket(ss,(struct request_bind *)buffer, result);
 	case 'L':
+		//绑定fd监听(不启用读功能)
 		return listen_socket(ss,(struct request_listen *)buffer, result);
 	case 'K':
+		//关闭socket   
 		return close_socket(ss,(struct request_close *)buffer, result);
 	case 'O':
+		//打开socket
 		return open_socket(ss, (struct request_open *)buffer, result);
 	case 'X':
 		result->opaque = 0;
@@ -1404,6 +1447,7 @@ ctrl_cmd(struct socket_server *ss, struct socket_message *result) {
 		result->data = NULL;
 		return SOCKET_EXIT;
 	case 'W':
+		//启用socket写功能
 		return trigger_write(ss, (struct request_send *)buffer, result);
 	case 'D':
 	case 'P': {
@@ -1682,6 +1726,7 @@ clear_closed_event(struct socket_server *ss, struct socket_message * result, int
 int 
 socket_server_poll(struct socket_server *ss, struct socket_message * result, int * more) {
 	for (;;) {
+		//处理系统内部指令
 		if (ss->checkctrl) {
 			if (has_cmd(ss)) {
 				int type = ctrl_cmd(ss, result);

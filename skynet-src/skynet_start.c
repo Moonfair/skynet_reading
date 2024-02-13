@@ -306,9 +306,13 @@ skynet_start(struct skynet_config * config) {
 	}
 	skynet_harbor_init(config->harbor);
 	skynet_handle_init(config->harbor);
+	//创建全局mq
 	skynet_mq_init();
+	//加载so库地址
 	skynet_module_init(config->module_path);
+	//创建全局定时器
 	skynet_timer_init();
+	//创建全局socket管理器
 	skynet_socket_init();
 	skynet_profile_enable(config->profile);
 
@@ -325,6 +329,7 @@ skynet_start(struct skynet_config * config) {
 	//启动首个服务
 	bootstrap(ctx, config->bootstrap);
 
+	//启动主服务
 	start(config->thread);
 
 	// harbor_exit may call socket send, so it should exit before socket_free

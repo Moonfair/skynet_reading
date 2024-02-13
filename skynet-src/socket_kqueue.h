@@ -62,6 +62,7 @@ sp_add(int kfd, int sock, void *ud) {
 	return 0;
 }
 
+//控制kqueue启用/禁用读写事件
 static int
 sp_enable(int kfd, int sock, void *ud, bool read_enable, bool write_enable) {
 	int ret = 0;
